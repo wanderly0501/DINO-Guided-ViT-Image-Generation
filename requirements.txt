@@ -1,0 +1,30 @@
+# PyTorch — visit https://pytorch.org/get-started/locally/ to get the right
+# CUDA wheel for your driver. Example for CUDA 12.1:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+
+# Scientific / data
+scipy
+matplotlib
+Pillow>=9.2.0
+
+# Vision / ML
+einops
+vector-quantize-pytorch
+
+# Models
+git+https://github.com/openai/CLIP.git
+# 1d-tokenizer is not pip-installable — clone it manually into the project root:
+#   git clone https://github.com/bytedance/1d-tokenizer.git
+
+# Evaluation
+torchmetrics[image]
+
+# HuggingFace
+datasets
+huggingface_hub
+
+# Misc
+omegaconf
+accelerate
