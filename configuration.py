@@ -71,7 +71,7 @@ class InferenceConfig:
     save_dir:    str   = _os.path.join(_PROJECT_ROOT, "outputs", "generated")
     n_samples:   int   = 32                    # number of images to generate per run
     temperature: float = 0.7                 # sampling temperature
-    T:           int   = 8                    # number of unmasking steps
+    T:           int   = 8                   # number of unmasking steps
 
 @dataclass
 class Config:
