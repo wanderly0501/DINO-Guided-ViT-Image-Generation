@@ -1,8 +1,37 @@
 # MaskedViT: DINO-Guided Conditional Image Generation
 
-A MaskGIT-style conditional image generation model that uses DINO attention maps to guide the token unmasking order during both training and inference.
+Unlike natural language, there is no obvious sequential order for image patches. This project tries to give image generation a sequential order based on saliency.
+
+This is MaskGIT-style conditional image generation model that uses DINO attention maps to guide the token unmasking order during both training and inference.
 
 ![Overall Architecture](assets/pipelines.png)
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+1d-tokenizer is not pip-installable — clone it manually into the project root:
+
+```bash
+git clone https://github.com/bytedance/1d-tokenizer.git
+```
+
+Key dependencies (see `requirements.txt` for pinned versions):
+
+| Package | Purpose |
+|---|---|
+| `torch >= 2.0` | Model training and inference |
+| `torchvision` | ImageNet dataset and transforms |
+| `open_clip_torch` | CLIP text encoder (ViT-B/32) |
+| `timm` | DINO ViT-S/8 backbone |
+| `transformers` | Tokenizer utilities |
+| `einops` | Tensor reshaping |
+| `accelerate` | Mixed-precision and device utilities |
+| `huggingface-hub` | Pretrained model downloads |
+
+A CUDA-capable GPU is required for training. The codebase uses BF16 autocast automatically on A100/H100; it falls back to FP32 on other hardware.
 
 ## Overview
 

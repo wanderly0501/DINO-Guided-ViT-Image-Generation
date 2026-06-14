@@ -186,6 +186,15 @@ def main():
         clip_model=clip_model,
     )
 
+    if cfg.train.train_predict_next:
+        print("Fine-tuning PredictNext head (all other parameters frozen) ...")
+        trainer.train_predict_next(
+            dataloader=train_loader,
+            val_loader=val_loader,
+            vq_model=vq_model,
+            clip_model=clip_model,
+        )
+
 
 if __name__ == "__main__":
     main()

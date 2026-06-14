@@ -23,14 +23,12 @@ class DataConfig:
 class ModelConfig:
     img_size:    int   = 256
     patch_size:  int   = 8
-    in_channels: int   = 3
-    num_classes: int   = 1000
     embed_dim:   int   = 768
     depth:       int   = 24
-    num_heads:   int   = 8
+    num_heads:   int   = 12
     mlp_ratio:     float = 4.0
-    attn_drop:     float = 0.0
-    proj_drop:     float = 0.0
+    attn_drop:     float = 0.1
+    proj_drop:     float = 0.1
     codebook_size: int   = 1024  # VQ-GAN codebook entries (MaskGIT-VQGAN default)
     clip_dim:      int   = 512   # CLIP image embedding dim (ViT-B/32 = 512)
     max_steps:     int   = 8    # upper bound for T (number of unmasking steps)
@@ -50,7 +48,7 @@ class TrainConfig:
     weight_decay:           float = 0.05
     warmup_epochs:          int   = 4
     grad_clip:              float = 1.0
-    next_index_loss_weight: float = 0.1
+    next_index_loss_weight: float = 0.0
     device:                 str   = "cuda"
     seed:                   int   = 142
     log_interval:        int = 5   # steps between console logs
@@ -61,6 +59,7 @@ class TrainConfig:
     output_dir:          str = _os.path.join(_PROJECT_ROOT, "outputs")
     per_example_loss:    bool = False  # if True, average loss per example then over batch
     use_bf16:            bool = True   # bf16 autocast on A100/H100; no-op on CPU
+    train_predict_next:  bool = False  # if True, fine-tune only PredictNext after main training
 
 @dataclass
 class EvalConfig:

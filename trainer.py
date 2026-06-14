@@ -124,6 +124,162 @@ class Trainer:
         return ce_loss.item(), bce_loss.item(), accuracy
 
     # ------------------------------------------------------------------
+    # PredictNext-only training
+    # ------------------------------------------------------------------
+
+    def train_predict_next_step(
+        self,
+        codes:     torch.Tensor,
+        images:    torch.Tensor,
+        clip_feat: torch.Tensor,
+        schedule:  list,
+        step_idx:  torch.Tensor,
+    ):
+        B, N = codes.shape
+        codes     = codes.to(self.device)
+        images    = images.to(self.device)
+        clip_feat = clip_feat.to(self.device)
+
+        with torch.no_grad():
+            sorted_idx = get_patch_sorted_index(images, self.dino_model)
+        sorted_idx = sorted_idx.to(self.device)
+
+        query_mask, key_mask, next_query = make_masks(
+            sorted_idx, schedule, step_idx, N, B, device=self.device
+        )
+
+        masked_codes = codes.clone()
+        masked_codes[~key_mask] = self.cfg.model.codebook_size
+
+        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+            _, pred_next = self.model(masked_codes, query_mask, key_mask, clip_feat, step=step_idx)
+
+            T         = len(schedule) - 1
+            bce_valid = (step_idx < T - 1).unsqueeze(1).expand(B, N)
+            remaining = ~(query_mask | key_mask) & bce_valid
+            if remaining.any():
+                bce_pred   = pred_next[remaining].squeeze(-1)
+                bce_target = next_query[remaining].float()
+                if self.cfg.train.per_example_loss:
+                    r_batch  = remaining.nonzero(as_tuple=True)[0]
+                    bce_tok  = F.binary_cross_entropy_with_logits(bce_pred, bce_target, reduction='none')
+                    r_counts = remaining.sum(dim=1).float()
+                    bce_sum  = torch.zeros(B, device=self.device).scatter_add_(0, r_batch, bce_tok)
+                    bce_loss = (bce_sum / r_counts.clamp(min=1))[r_counts > 0].mean()
+                else:
+                    bce_loss = F.binary_cross_entropy_with_logits(bce_pred, bce_target)
+            else:
+                bce_loss = torch.tensor(0.0, device=self.device)
+
+        self.optimizer.zero_grad()
+        bce_loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            self.model.pred_next.parameters(), self.cfg.train.grad_clip
+        )
+        self.optimizer.step()
+
+        return bce_loss.item()
+
+    def train_predict_next(
+        self,
+        dataloader,
+        val_loader,
+        vq_model:   nn.Module,
+        clip_model,
+    ):
+        """Freeze all parameters except pred_next and train only that module."""
+        raw_model = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
+
+        for param in raw_model.parameters():
+            param.requires_grad_(False)
+        for param in raw_model.pred_next.parameters():
+            param.requires_grad_(True)
+
+        self.model.train()
+        cfg = self.cfg
+
+        os.makedirs(cfg.train.output_dir, exist_ok=True)
+        loss_log_path = os.path.join(cfg.train.output_dir, "losses_predict_next.csv")
+        if not os.path.exists(loss_log_path):
+            with open(loss_log_path, "w") as f:
+                f.write("epoch,step,split,bce_loss\n")
+
+        N        = (cfg.model.img_size // 16) ** 2
+        T        = max(1, int(torch.log2(torch.tensor(N, dtype=torch.float)).item()))
+        schedule = step_schedule(T).tolist()
+
+        saved_optimizer = self.optimizer
+        saved_scheduler = self.scheduler
+        self.optimizer = torch.optim.AdamW(
+            raw_model.pred_next.parameters(),
+            lr=cfg.train.learning_rate,
+            weight_decay=cfg.train.weight_decay,
+        )
+
+        total_steps    = cfg.train.epochs * len(dataloader)
+        warmup_steps   = cfg.train.warmup_epochs * len(dataloader)
+        eta_min_factor = 1e-6 / cfg.train.learning_rate
+
+        def lr_lambda(current_step: int) -> float:
+            if current_step < warmup_steps:
+                return eta_min_factor + (1.0 - eta_min_factor) * current_step / max(warmup_steps, 1)
+            progress = (current_step - warmup_steps) / max(total_steps - warmup_steps, 1)
+            return eta_min_factor + (1.0 - eta_min_factor) * 0.5 * (1 + math.cos(math.pi * progress))
+
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
+
+        val_iter = enumerate(val_loader)
+
+        try:
+            for epoch in range(cfg.train.epochs):
+                for step, (images, labels) in enumerate(dataloader):
+                    images = images.to(self.device)
+                    labels = labels.to(self.device)
+
+                    with torch.no_grad():
+                        codes     = vq_model.encode(images)
+                        clip_feat = clip_model.encode_text(labels)
+
+                    B        = codes.shape[0]
+                    step_idx = torch.randint(0, T + 1, (B,), device=self.device)
+
+                    bce_loss = self.train_predict_next_step(
+                        codes, images, clip_feat, schedule, step_idx
+                    )
+                    self.scheduler.step()
+
+                    if step % cfg.train.log_interval == 0:
+                        lr = self.scheduler.get_last_lr()[0]
+                        print(
+                            f"[PredNext] Epoch {epoch:3d} | Step {step:5d} "
+                            f"| BCE {bce_loss:.4f} | LR {lr:.2e}"
+                        )
+                        with open(loss_log_path, "a") as f:
+                            f.write(f"{epoch},{step},train,{bce_loss:.6f}\n")
+
+                    if step % cfg.train.checkpoint_interval == 0 or step == len(dataloader) - 1:
+                        self.save_checkpoint(epoch, step)
+
+                    if step % cfg.train.val_interval == 0:
+                        try:
+                            _, (val_images, val_labels) = next(val_iter)
+                        except StopIteration:
+                            val_iter = enumerate(val_loader)
+                            _, (val_images, val_labels) = next(val_iter)
+                        _, val_bce, _ = validate(
+                            self.model, val_images, val_labels, vq_model, clip_model,
+                            self.dino_model, self.cfg, epoch=epoch, step=step,
+                        )
+                        with open(loss_log_path, "a") as f:
+                            f.write(f"{epoch},{step},val,{val_bce:.6f}\n")
+                        self.model.train()
+        finally:
+            for param in raw_model.parameters():
+                param.requires_grad_(True)
+            self.optimizer = saved_optimizer
+            self.scheduler = saved_scheduler
+
+    # ------------------------------------------------------------------
     # Checkpointing
     # ------------------------------------------------------------------
 
