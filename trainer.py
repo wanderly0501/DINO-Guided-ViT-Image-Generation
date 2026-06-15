@@ -360,6 +360,8 @@ class Trainer:
 
         val_iter = enumerate(val_loader)
 
+        _mem_diagnosed = False
+
         for epoch in range(cfg.train.epochs):
             for step, (images, labels) in enumerate(dataloader):
                 images = images.to(self.device)
@@ -373,9 +375,20 @@ class Trainer:
                 # random step index per image: (B,) each in [0, T]
                 step_idx = torch.randint(0, T + 1, (B,), device=self.device)
 
+                if not _mem_diagnosed and torch.cuda.is_available():
+                    torch.cuda.reset_peak_memory_stats()
+
                 ce_loss, bce_loss, accuracy = self.train_step(
                     codes, images, clip_feat, schedule, step_idx
                 )
+
+                if not _mem_diagnosed and torch.cuda.is_available():
+                    print(f"Weights:     {sum(p.numel()*p.element_size() for p in self.model.parameters())/1024**3:.2f} GiB")
+                    print(f"Grads:       {sum(p.grad.numel()*p.element_size() for p in self.model.parameters() if p.grad is not None)/1024**3:.2f} GiB")
+                    print(f"Total alloc: {torch.cuda.memory_allocated()/1024**3:.2f} GiB")
+                    print(f"Peak:        {torch.cuda.max_memory_allocated()/1024**3:.2f} GiB")
+                    _mem_diagnosed = True
+
                 self.scheduler.step()
 
                 if step % cfg.train.log_interval == 0:

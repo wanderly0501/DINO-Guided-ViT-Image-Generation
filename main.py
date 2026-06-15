@@ -27,7 +27,7 @@ from dino_util import load_dino_model
 from utils import denormalize
 
 # Add 1d-tokenizer repo to path for PretrainedTokenizer
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "1d-tokenizer"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "1d-tokenizer"))
 from modeling.titok import PretrainedTokenizer
 
 
@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--ckpt_path", type=str,
-        default=os.path.join(os.path.dirname(__file__), "..", "ckpts", "maskgit-vqgan-imagenet-f16-256.bin"),
+        default=os.path.join(os.path.dirname(__file__), "ckpts", "maskgit-vqgan-imagenet-f16-256.bin"),
         help="Path to the pre-trained VQ-GAN tokenizer weights.",
     )
     parser.add_argument(
