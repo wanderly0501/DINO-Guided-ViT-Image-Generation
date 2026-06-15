@@ -28,3 +28,23 @@ huggingface_hub
 # Misc
 omegaconf
 accelerate
+
+# ---------------------------------------------------------------------------
+# Model checkpoints — download into the ckpts/ folder at the project root
+# ---------------------------------------------------------------------------
+#
+# 1. MaskGIT VQ-GAN tokenizer (required for training and inference)
+#
+#    python -c "
+#    from huggingface_hub import hf_hub_download
+#    hf_hub_download(repo_id='fun-research/TiTok',
+#                    filename='maskgit-vqgan-imagenet-f16-256.bin',
+#                    local_dir='./ckpts')
+#    "
+#
+#    Or with wget:
+#    mkdir -p ckpts
+#    wget -P ckpts https://huggingface.co/fun-research/TiTok/resolve/main/maskgit-vqgan-imagenet-f16-256.bin
+#
+# 2. imagenet_256_L.ckpt
+#    TODO: add source repo / HuggingFace link
